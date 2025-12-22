@@ -1,20 +1,41 @@
 
-export interface StockData {
-  symbol: string;
-  price: number;
-  change: number;
-  changePercent: number;
-  qtp: number;
-  weightedDelta: number;
+export interface AuctionProfile {
+  vah: number;
+  val: number;
+  poc: number;
 }
 
-export interface OptionChainData {
+export interface Heavyweight {
+  name: string;
+  delta: number;
+  weight: string;
+}
+
+export interface OptionChainEntry {
+  strike: string;
   callOI: string;
   callChgPercent: number;
-  strike: string;
   putOI: string;
   putChgPercent: number;
   sentiment: 'BULLISH' | 'BEARISH' | 'UNWINDING' | 'NEUTRAL';
+}
+
+export interface MarketData {
+  timestamp: number;
+  symbol: string;
+  spot: number;
+  future: number;
+  basis: number;
+  pcr: number;
+  wssLatency: number;
+  questDbWriteLag: number;
+  auctionProfile: AuctionProfile;
+  heavyweights: Heavyweight[];
+  aggregateWeightedDelta: number;
+  optionChain: OptionChainEntry[];
+  auctionState: string;
+  alerts: any[];
+  thetaGuard: number;
 }
 
 export interface TradePosition {
@@ -24,10 +45,4 @@ export interface TradePosition {
   qty: number;
   pnl: number;
   exitReason?: string;
-}
-
-export interface Alert {
-  id: string;
-  type: 'success' | 'warning' | 'error';
-  message: string;
 }

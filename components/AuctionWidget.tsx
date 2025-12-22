@@ -1,16 +1,22 @@
 
 import React, { useEffect, useRef } from 'react';
 import WidgetWrapper from './WidgetWrapper';
-import { createChart, ColorType, IChartApi } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts';
+import { MarketData } from '../types';
 
-const AuctionWidget: React.FC = () => {
+interface AuctionWidgetProps {
+  marketData: MarketData | null;
+}
+
+const AuctionWidget: React.FC<AuctionWidgetProps> = ({ marketData }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const lineSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const lastTimeRef = useRef<number>(0);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    // Create the chart instance using a local variable first
     const chart = createChart(chartContainerRef.current, {
       layout: {
         background: { type: ColorType.Solid, color: '#0d1117' },
@@ -22,48 +28,79 @@ const AuctionWidget: React.FC = () => {
       },
       width: chartContainerRef.current.clientWidth,
       height: 220,
-      timeScale: { visible: false },
+      timeScale: { 
+        visible: true,
+        borderColor: '#30363d',
+        timeVisible: true,
+        secondsVisible: true,
+        fixLeftEdge: true,
+      },
     });
 
-    // Store in ref for future use if needed, but use 'chart' locally for setup
-    chartRef.current = chart;
-
-    // Use 'chart' directly to avoid ref-related TypeErrors
     const lineSeries = chart.addLineSeries({
       color: '#3b82f6',
       lineWidth: 2,
     });
 
-    const data = Array.from({ length: 50 }, (_, i) => ({
-      time: i as any,
-      value: 24500 + Math.random() * 100,
-    }));
-    
-    lineSeries.setData(data);
+    chartRef.current = chart;
+    lineSeriesRef.current = lineSeries;
 
     const handleResize = () => {
       if (chartContainerRef.current && chartRef.current) {
         chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
       }
     };
-
     window.addEventListener('resize', handleResize);
 
     return () => {
       window.removeEventListener('resize', handleResize);
       chart.remove();
-      chartRef.current = null;
     };
   }, []);
 
+  useEffect(() => {
+    if (marketData && lineSeriesRef.current && marketData.spot > 0) {
+      // Lightweight-charts needs timestamps in SECONDS
+      const ts = Math.floor(marketData.timestamp / 1000);
+      
+      // Safety: Only update if timestamp has progressed
+      if (ts > lastTimeRef.current) {
+        lineSeriesRef.current.update({
+          time: ts as any,
+          value: marketData.spot
+        });
+        lastTimeRef.current = ts;
+      }
+    }
+  }, [marketData]);
+
+  const profile = marketData?.auctionProfile;
+
+  // Fix: Providing the required 'children' prop to WidgetWrapper and properly closing the component
   return (
     <WidgetWrapper 
       title="Auction Profile & Volume"
-      footer={<div className="text-xs font-mono text-gray-400">Total Vol: 1.2M | POC: 24,550</div>}
+      footer={
+        <div className="grid grid-cols-3 gap-2 text-[10px] font-mono uppercase">
+          <div className="flex flex-col">
+            <span className="text-gray-500">VAH</span>
+            <span className="text-red-400 font-bold">{profile?.vah && profile.vah > 0 ? profile.vah.toFixed(1) : '--'}</span>
+          </div>
+          <div className="flex flex-col items-center">
+            <span className="text-gray-500">POC</span>
+            <span className="text-blue-400 font-bold">{profile?.poc && profile.poc > 0 ? profile.poc.toFixed(1) : '--'}</span>
+          </div>
+          <div className="flex flex-col items-end">
+            <span className="text-gray-500">VAL</span>
+            <span className="text-green-400 font-bold">{profile?.val && profile.val > 0 ? profile.val.toFixed(1) : '--'}</span>
+          </div>
+        </div>
+      }
     >
-      <div ref={chartContainerRef} className="relative w-full h-[220px] bg-[#0d1117] rounded border border-[#30363d] overflow-hidden" />
+      <div ref={chartContainerRef} className="w-full" />
     </WidgetWrapper>
   );
 };
 
+// Fix: Adding the missing default export required by Dashboard.tsx
 export default AuctionWidget;

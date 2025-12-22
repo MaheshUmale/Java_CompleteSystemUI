@@ -3,9 +3,15 @@ import React, { useEffect, useRef } from 'react';
 import WidgetWrapper from './WidgetWrapper';
 import { createChart, ColorType } from 'lightweight-charts';
 import { CheckCircle2, AlertTriangle, XCircle, MousePointer2 } from 'lucide-react';
+import { MarketData } from '../types';
 
-const SentimentWidget: React.FC = () => {
+interface SentimentProps {
+  marketData: MarketData | null;
+}
+
+const SentimentWidget: React.FC<SentimentProps> = ({ marketData }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
+  const areaSeriesRef = useRef<any>(null);
 
   useEffect(() => {
     if (!chartContainerRef.current) return;
@@ -24,13 +30,7 @@ const SentimentWidget: React.FC = () => {
       bottomColor: 'rgba(34, 197, 94, 0.05)',
       lineWidth: 2,
     });
-
-    const data = Array.from({ length: 30 }, (_, i) => ({
-      time: i as any,
-      value: 10 + Math.random() * 20,
-    }));
-
-    areaSeries.setData(data);
+    areaSeriesRef.current = areaSeries;
 
     const handleResize = () => {
       if (chartContainerRef.current) chart.applyOptions({ width: chartContainerRef.current.clientWidth });
@@ -43,42 +43,52 @@ const SentimentWidget: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (marketData && areaSeriesRef.current) {
+      areaSeriesRef.current.update({
+        time: (marketData.timestamp / 1000) as any,
+        value: marketData.pcr || 0
+      });
+    }
+  }, [marketData]);
+
   return (
     <WidgetWrapper 
       title="Sentiment & Live Triggers"
-      footer={<div className="text-xs font-mono text-gray-400">Auction Phase: Responsive</div>}
+      footer={<div className="text-xs font-mono text-gray-400 uppercase">Auction Phase: {marketData?.auctionState || 'UNKNOWN'}</div>}
     >
       <div className="flex space-x-4 h-full">
         <div className="w-1/3 flex flex-col">
-          <span className="text-[10px] text-gray-500 font-mono mb-2 uppercase">PCR Trend (5m)</span>
+          <span className="text-[10px] text-gray-500 font-mono mb-2 uppercase">PCR Trend (Live)</span>
           <div ref={chartContainerRef} className="bg-[#0d1117] rounded border border-[#30363d] overflow-hidden h-24" />
-          <span className="text-[10px] text-green-500 font-mono mt-2 font-bold uppercase">Latest PCR: 1.22</span>
+          <span className="text-[10px] text-green-500 font-mono mt-2 font-bold uppercase">PCR: {marketData?.pcr?.toFixed(2) || '0.00'}</span>
           
           <div className="mt-4 flex flex-col items-center">
              <MousePointer2 className="w-8 h-8 text-gray-600 mb-1" />
-             <span className="text-[9px] text-gray-500 uppercase">State Analyzer</span>
+             <span className="text-[9px] text-gray-500 uppercase">{marketData?.auctionState || 'IDLE'}</span>
           </div>
         </div>
 
         <div className="w-2/3 flex flex-col space-y-2">
           <span className="text-[10px] text-gray-500 font-mono uppercase">Key Network Alerts</span>
-          <div className="space-y-1.5">
-            <div className="flex items-center space-x-2 bg-green-500/10 border border-green-500/20 p-1.5 rounded">
-              <CheckCircle2 className="w-3 h-3 text-green-500" />
-              <span className="text-[10px] font-medium text-green-400">Put OI @ 24600 Spiking</span>
-            </div>
-            <div className="flex items-center space-x-2 bg-orange-500/10 border border-orange-500/20 p-1.5 rounded">
-              <AlertTriangle className="w-3 h-3 text-orange-500" />
-              <span className="text-[10px] font-medium text-orange-400">Neutral Delta Skew</span>
-            </div>
-            <div className="flex items-center space-x-2 bg-red-500/10 border border-red-500/20 p-1.5 rounded">
-              <XCircle className="w-3 h-3 text-red-500" />
-              <span className="text-[10px] font-medium text-red-400">Call Wall Defended</span>
-            </div>
+          <div className="space-y-1.5 min-h-[100px]">
+            {marketData?.alerts && marketData.alerts.length > 0 ? (
+              marketData.alerts.map((alert, idx) => (
+                <div key={idx} className="flex items-center space-x-2 bg-blue-500/10 border border-blue-500/20 p-1.5 rounded">
+                  <CheckCircle2 className="w-3 h-3 text-blue-500" />
+                  <span className="text-[10px] font-medium text-blue-400">{alert}</span>
+                </div>
+              ))
+            ) : (
+              <div className="flex items-center space-x-2 bg-gray-500/10 border border-gray-500/20 p-1.5 rounded italic opacity-50">
+                <AlertTriangle className="w-3 h-3 text-gray-500" />
+                <span className="text-[10px] font-medium text-gray-400 uppercase">No active alerts</span>
+              </div>
+            )}
           </div>
           
-          <div className="mt-auto bg-blue-500/10 border border-blue-500/30 p-2 rounded flex flex-col items-center animate-pulse">
-            <span className="text-[10px] font-bold text-blue-400 tracking-wider">RESPONSIVE BUY SETUP</span>
+          <div className={`mt-auto p-2 rounded flex flex-col items-center animate-pulse border ${marketData?.auctionState === 'ROTATION' ? 'bg-orange-500/10 border-orange-500/30 text-orange-400' : 'bg-blue-500/10 border-blue-500/30 text-blue-400'}`}>
+            <span className="text-[10px] font-bold tracking-wider uppercase">{marketData?.auctionState || 'MONITORING'}</span>
           </div>
         </div>
       </div>

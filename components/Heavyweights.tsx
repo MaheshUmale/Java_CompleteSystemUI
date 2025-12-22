@@ -1,54 +1,52 @@
 
 import React from 'react';
 import WidgetWrapper from './WidgetWrapper';
-import { StockData } from '../types';
+import { MarketData } from '../types';
 
-const stocks: StockData[] = [
-  { symbol: 'RELIANCE', price: 2980, change: 11.1, changePercent: 11.1, qtp: 15200, weightedDelta: 15200 },
-  { symbol: 'RDLIBANK', price: 6800, change: 0.8, changePercent: 0.8, qtp: 7600, weightedDelta: 13800 },
-  { symbol: 'HDFCBANK', price: 6450, change: 0.5, changePercent: 0.5, qtp: 6700, weightedDelta: 7800 },
-  { symbol: 'ICICIBANK', price: 1025, change: -5, changePercent: -0.5, qtp: -2500, weightedDelta: -2100 },
-  { symbol: 'INFOS', price: 1420, change: -3, changePercent: -0.2, qtp: -5000, weightedDelta: -2100 },
-];
+interface HeavyweightsProps {
+  marketData: MarketData | null;
+}
 
-const Heavyweights: React.FC = () => {
+const Heavyweights: React.FC<HeavyweightsProps> = ({ marketData }) => {
+  const stocks = marketData?.heavyweights || [];
+  const aggDelta = marketData?.aggregateWeightedDelta || 0;
+
   return (
     <WidgetWrapper 
       title="Heavyweights (Nifty 50)"
       footer={
         <div className="flex justify-between items-center font-mono">
-          <span className="text-xs text-gray-400">Agg. W. Delta</span>
-          <span className="text-xs font-bold text-green-500">+31,400 (70%)</span>
+          <span className="text-xs text-gray-400 uppercase">Agg. Weighted Delta</span>
+          <span className={`text-xs font-bold ${aggDelta >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+            {aggDelta >= 0 ? '+' : ''}{aggDelta.toLocaleString()}
+          </span>
         </div>
       }
     >
       <table className="w-full text-[11px] font-mono">
         <thead>
           <tr className="text-gray-500 border-b border-[#30363d]">
-            <th className="pb-2 font-normal text-left uppercase">Stock</th>
-            <th className="pb-2 font-normal text-right uppercase">Price / % Change</th>
-            <th className="pb-2 font-normal text-right uppercase">QTP</th>
-            <th className="pb-2 font-normal text-right uppercase">Weighted Delta</th>
+            <th className="pb-2 font-normal text-left uppercase">Name</th>
+            <th className="pb-2 font-normal text-right uppercase">Delta</th>
+            <th className="pb-2 font-normal text-right uppercase">Weight</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-[#30363d]">
-          {stocks.map((stock, i) => (
+          {stocks.length > 0 ? stocks.map((stock, i) => (
             <tr key={i} className="hover:bg-[#1c2128]">
-              <td className="py-2.5 text-left font-medium">{stock.symbol}</td>
-              <td className="py-2.5 text-right">
-                <span className="mr-1">{stock.price.toLocaleString()}</span>
-                <span className={stock.change >= 0 ? 'text-green-500' : 'text-red-500'}>
-                  {stock.change >= 0 ? '+' : ''}{stock.changePercent}%
-                </span>
+              <td className="py-2.5 text-left font-medium text-gray-200">{stock.name}</td>
+              <td className={`py-2.5 text-right font-bold ${stock.delta >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                {stock.delta >= 0 ? '+' : ''}{stock.delta.toFixed(2)}
               </td>
-              <td className={`py-2.5 text-right ${stock.qtp >= 0 ? 'text-gray-300' : 'text-red-400'}`}>
-                {stock.qtp >= 0 ? '+' : ''}{stock.qtp.toLocaleString()}
-              </td>
-              <td className={`py-2.5 text-right ${stock.weightedDelta >= 0 ? 'text-gray-300' : 'text-red-400'}`}>
-                {stock.weightedDelta >= 0 ? '+' : ''}{stock.weightedDelta.toLocaleString()}
+              <td className="py-2.5 text-right text-gray-400">
+                {stock.weight}
               </td>
             </tr>
-          ))}
+          )) : (
+            <tr>
+              <td colSpan={3} className="py-8 text-center text-gray-600 uppercase italic">Awaiting Weightage Data...</td>
+            </tr>
+          )}
         </tbody>
       </table>
     </WidgetWrapper>
