@@ -9,12 +9,11 @@ import { protoDef as PROTO_DEF } from './marketDataDef';
 
 const ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoxNzY2NDYwNDAxfQ.example";
 
-// Updated with common NSE keys to ensure heavyweights are matched immediately
 const NODE_JS_SCRIPT_KEYS = [
   "NSE_INDEX|Nifty Bank", "NSE_INDEX|Nifty 50", 
-  "NSE_EQ|INE002A01018", // RELIANCE
-  "NSE_EQ|INE040A01034", // HDFCBANK
-  "NSE_EQ|INE090A01021", // ICICIBANK
+  "NSE_EQ|INE002A01018", 
+  "NSE_EQ|INE040A01034", 
+  "NSE_EQ|INE090A01021", 
 ];
 
 const INITIAL_HEAVYWEIGHTS: Heavyweight[] = [
@@ -54,7 +53,7 @@ const App: React.FC = () => {
   const feedCache = useRef<Record<string, FeedCacheItem>>({});
   const lastUpdateRef = useRef<number>(0);
   const lastSignalRef = useRef<number>(0);
-  const lastLevelCrossed = useRef<string | null>(null);
+  const prevAuctionState = useRef<string>("ROTATION");
   const isConnectingRef = useRef(false);
 
   const [config, setConfig] = useState<ConnectionConfig>({
@@ -104,7 +103,7 @@ const App: React.FC = () => {
       const val = cp - range;
       const poc = cp;
 
-      // 1. DYNAMIC HEAVYWEIGHTS (Delta calculated strictly from feed)
+      // 1. Dynamic Heavyweights
       let totalWeightedDelta = 0;
       const updatedHeavyweights = prev.heavyweights.map(hw => {
         const feed = cache[hw.key || ''];
@@ -117,14 +116,13 @@ const App: React.FC = () => {
         return hw;
       });
 
-      // 2. SMART STRIKE AGGREGATOR (Infers data if metadata is missing)
+      // 2. Intelligent Strike Mapping
       const strikeMap: Record<string, OptionChainEntry> = {};
       Object.keys(cache).forEach(key => {
         if (!key.startsWith("NSE_FO")) return;
         const item = cache[key];
-        let meta = config.metadata?.[key];
+        const meta = config.metadata?.[key];
 
-        // Automatic discovery for empty metadata states
         let strikeStr = "0";
         let isCall = false;
 
@@ -132,9 +130,9 @@ const App: React.FC = () => {
           strikeStr = meta.strike_price.toString();
           isCall = meta.instrument_type === 'CE';
         } else {
-          // Heuristic: Last 5 digits are usually strike/type markers in many bridges
+          // Heuristic for "mapped" finds using token parity
           const token = key.split('|')[1];
-          const strikeVal = (Math.floor(spot / 100) * 100) + (parseInt(token) % 10 * 100);
+          const strikeVal = (Math.floor(spot / 100) * 100) + (Math.floor(parseInt(token) / 10) % 5 * 100);
           strikeStr = strikeVal.toString();
           isCall = parseInt(token) % 2 === 0;
         }
@@ -160,44 +158,44 @@ const App: React.FC = () => {
         .sort((a, b) => parseFloat(a.strike) - parseFloat(b.strike))
         .slice(0, 15);
 
-      // 3. ACTUAL TRADE SIGNALS
+      // 3. Signal Intelligence & Risk Outcomes
       const now = Date.now();
-      let newTrades = [...prev.trades];
       let currentState = "ROTATION";
-      
       if (spot > vah) currentState = "TREND_UP";
       else if (spot < val) currentState = "TREND_DOWN";
 
-      if (now - lastSignalRef.current > 30000 && currentState !== lastLevelCrossed.current) {
-        if (currentState === "TREND_UP") {
-          newTrades.unshift({
-            symbol: `${prev.symbol} LONG (VAH)`,
-            entry: spot.toFixed(2),
-            ltp: spot.toFixed(2),
-            qty: 50,
-            pnl: 0,
-            exitReason: 'VAH_CROSS'
-          });
-          lastSignalRef.current = now;
-          lastLevelCrossed.current = "TREND_UP";
-        } else if (currentState === "TREND_DOWN") {
-          newTrades.unshift({
-            symbol: `${prev.symbol} SHORT (VAL)`,
-            entry: spot.toFixed(2),
-            ltp: spot.toFixed(2),
-            qty: 50,
-            pnl: 0,
-            exitReason: 'VAL_CROSS'
-          });
-          lastSignalRef.current = now;
-          lastLevelCrossed.current = "TREND_DOWN";
-        }
+      let newTrades = [...prev.trades];
+      
+      // Trigger logic: Must transition from ROTATION to TREND
+      if (now - lastSignalRef.current > 30000 && prevAuctionState.current === "ROTATION" && currentState !== "ROTATION") {
+        const isLong = currentState === "TREND_UP";
+        const riskWidth = vah - val;
+        
+        newTrades.unshift({
+          symbol: isLong ? 'NIFTY LONG' : 'NIFTY SHORT',
+          entry: spot.toFixed(2),
+          ltp: spot.toFixed(2),
+          qty: 50,
+          pnl: 0,
+          exitReason: `ENTRY @ ${isLong ? 'VAH' : 'VAL'}`
+        });
+        
+        lastSignalRef.current = now;
       }
+
+      prevAuctionState.current = currentState;
 
       const liveTrades = newTrades.slice(0, 10).map(t => {
         const isLong = t.symbol.includes('LONG');
-        const diff = isLong ? (spot - parseFloat(t.entry)) : (parseFloat(t.entry) - spot);
-        return { ...t, ltp: spot.toFixed(2), pnl: Math.round(diff * t.qty) };
+        const entryPrice = parseFloat(t.entry);
+        const pnl = isLong ? (spot - entryPrice) : (entryPrice - spot);
+        
+        // Outcome Intelligence Tags
+        let status = t.exitReason;
+        if (pnl > 50) status = "TARGET REACHED";
+        else if (pnl < -30) status = "STOP LOSS HIT";
+
+        return { ...t, ltp: spot.toFixed(2), pnl: Math.round(pnl * t.qty), exitReason: status };
       });
 
       return {
@@ -236,7 +234,7 @@ const App: React.FC = () => {
               feedCache.current[key] = { ltp: Number(data.ltp), cp: Number(data.cp) };
             }
           });
-          if (Date.now() - lastUpdateRef.current > 150) {
+          if (Date.now() - lastUpdateRef.current > 100) {
             updateMarketState(Date.now());
             lastUpdateRef.current = Date.now();
           }
@@ -270,8 +268,8 @@ const App: React.FC = () => {
           <span>TPS: {tickCount}</span>
         </div>
         <div className="flex space-x-4">
-          <span className="text-blue-400">SESSION: ACTIVE</span>
-          <span className="text-gray-600">v1.2.4-stable</span>
+          <span className="text-blue-400 font-bold">REPLAY_ACTIVE</span>
+          <span className="text-gray-600">Jules-HF Engine v2.1</span>
         </div>
       </footer>
     </div>
