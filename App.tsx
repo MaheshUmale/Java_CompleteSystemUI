@@ -1,92 +1,11 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import protobuf from 'protobufjs';
+import * as protobuf from 'protobufjs';
 import Header from './components/Header';
 import Dashboard from './components/Dashboard';
 import ConnectionSettings from './components/ConnectionSettings';
 import { MarketData, ConnectionStatus, ConnectionConfig, OptionChainEntry, Heavyweight, FeedCacheItem } from './types';
-
-const PROTO_DEF = `
-syntax = "proto3";
-package com.upstox.marketdatafeederv3udapi.rpc.proto;
-
-message FeedResponse {
-  enum Type {
-    initial_feed = 0;
-    live_feed = 1;
-    status_feed = 2; 
-  }
-  Type type = 1;
-  map<string, Feed> feeds = 2;
-}
-
-message Feed {
-  oneof feed {
-    LTPC ltpc = 1;
-    FullFeed fullFeed = 2;
-    OptionGreeks optionGreeks = 3;
-  }
-}
-
-message FullFeed {
-  oneof kind {
-    IndexFullFeed indexFF = 1;
-    MarketFullFeed marketFF = 2;
-  }
-}
-
-message IndexFullFeed {
-  LTPC ltpc = 1;
-  MarketOHLC marketOHLC = 2;
-}
-
-message MarketFullFeed {
-  LTPC ltpc = 1;
-  MarketLevel marketLevel = 2;
-  OptionGreeks optionGreeks = 3;
-  MarketOHLC marketOHLC = 4;
-}
-
-message OptionGreeks {
-  double delta = 1;
-  double theta = 2;
-  double gamma = 3;
-  double vega = 4;
-  double rho = 5;
-}
-
-message LTPC {
-  double ltp = 1;
-  int64 ltt = 2;
-  int64 ltq = 3;
-  double cp = 4;
-}
-
-message MarketOHLC {
-  repeated OHLC ohlc = 1;
-}
-
-message OHLC {
-  string interval = 1;
-  double open = 2;
-  double high = 3;
-  double low = 4;
-  double close = 5;
-  int32 volume = 6;
-  int64 ts = 7;
-}
-
-message MarketLevel {
-  repeated Quote bidAskQuote = 1;
-}
-
-message Quote {
-  int32 bidQty = 1;
-  double bidPrice = 2;
-  int32 askQty = 3;
-  double askPrice = 4;
-}
-`;
+import { protoDef as PROTO_DEF } from './marketDataDef';
 
 const ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI3NkFGMzUiLCJqdGkiOiI2OTRhMGJmMTUyNjIzOTI4NzRkOGMyNWQiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc2NjQ2MDQwMSwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzY2NTI3MjAwfQ.-HbeyBmLJ7gnJLVesfs9hSBjMMCwdIfA442DZDrE3vc";
 
@@ -128,7 +47,7 @@ const App: React.FC = () => {
     aggregateWeightedDelta: 0,
     optionChain: [],
     auctionState: "BOOTING",
-    alerts: [],
+    alerts: ["SYSTEM_READY", "WAITING_FOR_BRIDGE"],
     thetaGuard: 0,
     trades: []
   });
@@ -147,7 +66,7 @@ const App: React.FC = () => {
     url: 'https://api.upstox.com/v3/feed/market-data-feed/authorize',
     accessToken: ACCESS_TOKEN,
     wsUrl: 'ws://localhost:8080',
-    mode: 'UPSTOX_DIRECT',
+    mode: 'JSON_BRIDGE', // Defaulting to Bridge for your replay use-case
     autoReconnect: true,
     instrumentKeys: NODE_JS_SCRIPT_KEYS,
     metadata: {
@@ -162,9 +81,12 @@ const App: React.FC = () => {
 
   const protoRoot = useMemo(() => {
     try {
+      // In Vite/ESM, protobuf is often the module itself
       const p = (protobuf as any).default || protobuf;
       if (p && p.parse) return p.parse(PROTO_DEF).root;
-    } catch (e) { console.error("Proto Init Fail", e); }
+    } catch (e) { 
+      console.error("Proto Init Fail", e); 
+    }
     return null;
   }, []);
 
@@ -172,7 +94,6 @@ const App: React.FC = () => {
     try {
       if (typeof data === 'string') return JSON.parse(data);
       
-      // If Binary (Blob or ArrayBuffer), try Protobuf first
       if (data instanceof Blob || data instanceof ArrayBuffer) {
         if (!protoRoot) return null;
         let buffer = data instanceof Blob ? new Uint8Array(await data.arrayBuffer()) : new Uint8Array(data);
@@ -181,7 +102,6 @@ const App: React.FC = () => {
           const message = FeedResponse.decode(buffer);
           return FeedResponse.toObject(message, { enums: String, longs: String, defaults: true });
         } catch (protoErr) {
-          // Fallback to text JSON if Protobuf decode fails on binary data
           const text = new TextDecoder().decode(buffer);
           return JSON.parse(text);
         }
@@ -222,7 +142,7 @@ const App: React.FC = () => {
         spot: spotFeed?.ltp || 0,
         auctionState: spotFeed?.ltp > 0 ? "LIVE" : "WAITING",
         optionChain: entries,
-        basis: spotFeed?.ltp ? spotFeed.ltp - (spotFeed.cp || 0) : 0,
+        basis: (spotFeed?.ltp && spotFeed.cp) ? spotFeed.ltp - spotFeed.cp : 0,
         pcr: 1.0
       };
     });
@@ -252,8 +172,6 @@ const App: React.FC = () => {
       
       addLog(`WSS: Connecting to ${wsUrl}...`);
       const socket = new WebSocket(wsUrl);
-      
-      // If it's a bridge, we use standard text, otherwise binary
       socket.binaryType = config.mode === 'JSON_BRIDGE' ? 'arraybuffer' : 'blob';
 
       socket.onopen = () => {
