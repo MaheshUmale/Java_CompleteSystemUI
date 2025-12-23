@@ -1,7 +1,6 @@
-
 import React, { useEffect, useRef } from 'react';
 import WidgetWrapper from './WidgetWrapper';
-import { createChart, ColorType } from 'lightweight-charts';
+import { createChart, ColorType, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import { MarketData } from '../types';
 
 interface TradePanelProps {
@@ -11,7 +10,6 @@ interface TradePanelProps {
 const TradePanel: React.FC<TradePanelProps> = ({ marketData }) => {
   const spotChartRef = useRef<HTMLDivElement>(null);
   const strikeChartRef = useRef<HTMLDivElement>(null);
-  const candleSeriesRef = useRef<any>(null);
 
   useEffect(() => {
     if (!spotChartRef.current || !strikeChartRef.current) return;
@@ -25,19 +23,13 @@ const TradePanel: React.FC<TradePanelProps> = ({ marketData }) => {
       timeScale: { visible: false },
     });
     
-    const candlestickSeries = spotChart.addCandlestickSeries({
+    spotChart.addSeries(CandlestickSeries, {
       upColor: '#22c55e', 
       downColor: '#ef4444', 
       borderVisible: false, 
       wickUpColor: '#22c55e', 
       wickDownColor: '#ef4444',
     });
-    candleSeriesRef.current = candlestickSeries;
-
-    // Mock initial candles
-    candlestickSeries.setData([
-      { time: '2023-01-01', open: 24500, high: 24550, low: 24480, close: 24520 },
-    ] as any);
 
     const strikeChart = createChart(strikeChartRef.current, {
       layout: { background: { type: ColorType.Solid, color: '#0d1117' }, textColor: '#9ca3af' },
@@ -47,7 +39,7 @@ const TradePanel: React.FC<TradePanelProps> = ({ marketData }) => {
       timeScale: { visible: false },
     });
     
-    const lineSeries = strikeChart.addLineSeries({ color: '#eab308', lineWidth: 2 });
+    strikeChart.addSeries(LineSeries, { color: '#eab308', lineWidth: 2 });
 
     const handleResize = () => {
       if (spotChartRef.current) spotChart.applyOptions({ width: spotChartRef.current.clientWidth });

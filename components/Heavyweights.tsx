@@ -18,7 +18,7 @@ const Heavyweights: React.FC<HeavyweightsProps> = ({ marketData }) => {
         <div className="flex justify-between items-center font-mono">
           <span className="text-xs text-gray-400 uppercase">Agg. Weighted Delta</span>
           <span className={`text-xs font-bold ${aggDelta >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-            {aggDelta >= 0 ? '+' : ''}{aggDelta.toLocaleString()}
+            {aggDelta >= 0 ? '+' : ''}{aggDelta.toFixed(4)}
           </span>
         </div>
       }
@@ -32,19 +32,20 @@ const Heavyweights: React.FC<HeavyweightsProps> = ({ marketData }) => {
           </tr>
         </thead>
         <tbody className="divide-y divide-[#30363d]">
-          {stocks.length > 0 ? stocks.map((stock, i) => (
+          {stocks.map((stock, i) => (
             <tr key={i} className="hover:bg-[#1c2128]">
               <td className="py-2.5 text-left font-medium text-gray-200">{stock.name}</td>
               <td className={`py-2.5 text-right font-bold ${stock.delta >= 0 ? 'text-green-500' : 'text-red-500'}`}>
-                {stock.delta >= 0 ? '+' : ''}{stock.delta.toFixed(2)}
+                {stock.delta >= 0 ? '+' : ''}{stock.delta.toFixed(4)}
               </td>
               <td className="py-2.5 text-right text-gray-400">
                 {stock.weight}
               </td>
             </tr>
-          )) : (
+          ))}
+          {stocks.length === 0 && (
             <tr>
-              <td colSpan={3} className="py-8 text-center text-gray-600 uppercase italic">Awaiting Weightage Data...</td>
+              <td colSpan={3} className="py-10 text-center text-gray-600 italic">No Heavyweights Mapped</td>
             </tr>
           )}
         </tbody>

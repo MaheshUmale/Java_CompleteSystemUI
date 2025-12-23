@@ -1,7 +1,6 @@
-
 import React, { useEffect, useRef } from 'react';
 import WidgetWrapper from './WidgetWrapper';
-import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts';
+import { createChart, ColorType, IChartApi, ISeriesApi, LineSeries } from 'lightweight-charts';
 import { MarketData } from '../types';
 
 interface AuctionWidgetProps {
@@ -37,7 +36,7 @@ const AuctionWidget: React.FC<AuctionWidgetProps> = ({ marketData }) => {
       },
     });
 
-    const lineSeries = chart.addLineSeries({
+    const lineSeries = chart.addSeries(LineSeries, {
       color: '#3b82f6',
       lineWidth: 2,
     });
@@ -60,10 +59,7 @@ const AuctionWidget: React.FC<AuctionWidgetProps> = ({ marketData }) => {
 
   useEffect(() => {
     if (marketData && lineSeriesRef.current && marketData.spot > 0) {
-      // Lightweight-charts needs timestamps in SECONDS
       const ts = Math.floor(marketData.timestamp / 1000);
-      
-      // Safety: Only update if timestamp has progressed
       if (ts > lastTimeRef.current) {
         lineSeriesRef.current.update({
           time: ts as any,
@@ -76,7 +72,6 @@ const AuctionWidget: React.FC<AuctionWidgetProps> = ({ marketData }) => {
 
   const profile = marketData?.auctionProfile;
 
-  // Fix: Providing the required 'children' prop to WidgetWrapper and properly closing the component
   return (
     <WidgetWrapper 
       title="Auction Profile & Volume"
@@ -102,5 +97,4 @@ const AuctionWidget: React.FC<AuctionWidgetProps> = ({ marketData }) => {
   );
 };
 
-// Fix: Adding the missing default export required by Dashboard.tsx
 export default AuctionWidget;

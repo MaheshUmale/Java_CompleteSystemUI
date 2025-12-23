@@ -11,9 +11,10 @@
   "dependencies": {
     "recharts": "^3.6.0",
     "lucide-react": "^0.562.0",
-    "lightweight-charts": "4.2.1",
+    "lightweight-charts": "5.0.2",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "protobufjs": "^7.2.4"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

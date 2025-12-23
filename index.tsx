@@ -9,8 +9,7 @@ if (!rootElement) {
 }
 
 const root = ReactDOM.createRoot(rootElement);
+// Removed StrictMode to prevent double-socket connections in development environments
 root.render(
-  <React.StrictMode>
     <App />
-  </React.StrictMode>
 );

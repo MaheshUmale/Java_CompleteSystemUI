@@ -1,8 +1,7 @@
-
 import React, { useEffect, useRef } from 'react';
 import WidgetWrapper from './WidgetWrapper';
-import { createChart, ColorType } from 'lightweight-charts';
-import { CheckCircle2, AlertTriangle, XCircle, MousePointer2 } from 'lucide-react';
+import { createChart, ColorType, AreaSeries } from 'lightweight-charts';
+import { CheckCircle2, AlertTriangle, MousePointer2 } from 'lucide-react';
 import { MarketData } from '../types';
 
 interface SentimentProps {
@@ -24,7 +23,7 @@ const SentimentWidget: React.FC<SentimentProps> = ({ marketData }) => {
       timeScale: { visible: false },
     });
 
-    const areaSeries = chart.addAreaSeries({
+    const areaSeries = chart.addSeries(AreaSeries, {
       lineColor: '#22c55e',
       topColor: 'rgba(34, 197, 94, 0.4)',
       bottomColor: 'rgba(34, 197, 94, 0.05)',
