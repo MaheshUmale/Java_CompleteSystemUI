@@ -9,8 +9,6 @@ export default defineConfig({
   build: {
     target: 'esnext'
   },
-  optimizeDeps: {
-    // Since we use importmap for some deps, we exclude them from pre-bundling
-    exclude: ['recharts', 'lucide-react', 'lightweight-charts', 'protobufjs']
-  }
+  // Removed optimizeDeps.exclude because it prevents Vite from 
+  // bundling CommonJS dependencies for the browser.
 });

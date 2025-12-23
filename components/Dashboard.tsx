@@ -14,13 +14,13 @@ interface DashboardProps {
 
 const Dashboard: React.FC<DashboardProps> = ({ marketData }) => {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 h-full">
-      <AuctionWidget marketData={marketData} />
-      <OptionChain marketData={marketData} />
-      <TradePanel marketData={marketData} />
-      <Heavyweights marketData={marketData} />
-      <SentimentWidget marketData={marketData} />
-      <ActiveTrades marketData={marketData} />
+    <div className="grid grid-cols-1 lg:grid-cols-3 lg:grid-rows-2 gap-4 h-full">
+      <div className="min-h-0 lg:row-span-1"><AuctionWidget marketData={marketData} /></div>
+      <div className="min-h-0 lg:row-span-1"><OptionChain marketData={marketData} /></div>
+      <div className="min-h-0 lg:row-span-1"><TradePanel marketData={marketData} /></div>
+      <div className="min-h-0 lg:row-span-1"><Heavyweights marketData={marketData} /></div>
+      <div className="min-h-0 lg:row-span-1"><SentimentWidget marketData={marketData} /></div>
+      <div className="min-h-0 lg:row-span-1"><ActiveTrades marketData={marketData} /></div>
     </div>
   );
 };

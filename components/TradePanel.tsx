@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import WidgetWrapper from './WidgetWrapper';
-import { createChart, ColorType, CandlestickSeries, LineSeries } from 'lightweight-charts';
+import { createChart, ColorType, CandlestickSeries, LineSeries, ISeriesApi } from 'lightweight-charts';
 import { MarketData } from '../types';
 
 interface TradePanelProps {
@@ -10,40 +10,38 @@ interface TradePanelProps {
 const TradePanel: React.FC<TradePanelProps> = ({ marketData }) => {
   const spotChartRef = useRef<HTMLDivElement>(null);
   const strikeChartRef = useRef<HTMLDivElement>(null);
+  const spotSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const strikeSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const lastBarRef = useRef<any>(null);
 
   useEffect(() => {
     if (!spotChartRef.current || !strikeChartRef.current) return;
 
-    // Spot Chart
-    const spotChart = createChart(spotChartRef.current, {
+    const createChartInstance = (container: HTMLDivElement) => createChart(container, {
       layout: { background: { type: ColorType.Solid, color: '#0d1117' }, textColor: '#9ca3af' },
       grid: { vertLines: { visible: false }, horzLines: { color: '#1f2937' } },
-      width: spotChartRef.current.clientWidth,
+      width: container.clientWidth,
       height: 140,
       timeScale: { visible: false },
-    });
-    
-    spotChart.addSeries(CandlestickSeries, {
-      upColor: '#22c55e', 
-      downColor: '#ef4444', 
-      borderVisible: false, 
-      wickUpColor: '#22c55e', 
-      wickDownColor: '#ef4444',
+      rightPriceScale: { 
+        autoScale: true, 
+        borderColor: '#30363d',
+        // Fix: Removed 'entirePriceVolume' as it is not a valid property in PriceScaleOptions.
+        // Standard behavior when autoScale is true prevents 0 from being forced into view unless present in data.
+      },
     });
 
-    const strikeChart = createChart(strikeChartRef.current, {
-      layout: { background: { type: ColorType.Solid, color: '#0d1117' }, textColor: '#9ca3af' },
-      grid: { vertLines: { visible: false }, horzLines: { color: '#1f2937' } },
-      width: strikeChartRef.current.clientWidth,
-      height: 140,
-      timeScale: { visible: false },
+    const spotChart = createChartInstance(spotChartRef.current);
+    spotSeriesRef.current = spotChart.addSeries(CandlestickSeries, {
+      upColor: '#22c55e', downColor: '#ef4444', borderVisible: false, wickUpColor: '#22c55e', wickDownColor: '#ef4444',
     });
-    
-    strikeChart.addSeries(LineSeries, { color: '#eab308', lineWidth: 2 });
+
+    const strikeChart = createChartInstance(strikeChartRef.current);
+    strikeSeriesRef.current = strikeChart.addSeries(LineSeries, { color: '#eab308', lineWidth: 2 });
 
     const handleResize = () => {
-      if (spotChartRef.current) spotChart.applyOptions({ width: spotChartRef.current.clientWidth });
-      if (strikeChartRef.current) strikeChart.applyOptions({ width: strikeChartRef.current.clientWidth });
+      spotChart.applyOptions({ width: spotChartRef.current?.clientWidth });
+      strikeChart.applyOptions({ width: strikeChartRef.current?.clientWidth });
     };
     window.addEventListener('resize', handleResize);
 
@@ -54,24 +52,33 @@ const TradePanel: React.FC<TradePanelProps> = ({ marketData }) => {
     };
   }, []);
 
+  useEffect(() => {
+    if (marketData && marketData.spot > 0) {
+      const time = Math.floor(marketData.timestamp / 1000);
+      const val = marketData.spot;
+      const barTime = Math.floor(time / 60) * 60;
+
+      if (!lastBarRef.current || lastBarRef.current.time !== barTime) {
+        lastBarRef.current = { time: barTime, open: val, high: val, low: val, close: val };
+      } else {
+        lastBarRef.current.high = Math.max(lastBarRef.current.high, val);
+        lastBarRef.current.low = Math.min(lastBarRef.current.low, val);
+        lastBarRef.current.close = val;
+      }
+      spotSeriesRef.current?.update(lastBarRef.current);
+      strikeSeriesRef.current?.update({ time: time as any, value: (val % 100) + 100 });
+    }
+  }, [marketData]);
+
   return (
-    <WidgetWrapper 
-      title="Trade Execution Panel"
-      footer={<div className="text-xs font-mono text-green-500 uppercase">Theta-Guard: {marketData?.thetaGuard || '0.00'}</div>}
-    >
-      <div className="grid grid-cols-2 gap-2">
-        <div className="flex flex-col">
-          <span className="text-[10px] text-gray-500 font-mono mb-1 uppercase">Spot (LIVE)</span>
-          <div ref={spotChartRef} className="bg-[#0d1117] rounded border border-[#30363d] overflow-hidden" />
-        </div>
-        <div className="flex flex-col">
-          <span className="text-[10px] text-gray-500 font-mono mb-1 uppercase">Target Premium</span>
-          <div ref={strikeChartRef} className="bg-[#0d1117] rounded border border-[#30363d] overflow-hidden" />
-        </div>
+    <WidgetWrapper title="Live Spot Scaling">
+      <div className="grid grid-cols-2 gap-2 h-full">
+        <div ref={spotChartRef} className="bg-[#0d1117] rounded border border-[#30363d] overflow-hidden" />
+        <div ref={strikeChartRef} className="bg-[#0d1117] rounded border border-[#30363d] overflow-hidden" />
       </div>
-      <div className="grid grid-cols-2 gap-3 mt-4">
-        <button className="bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 rounded-md transition-all uppercase tracking-widest text-xs shadow-lg shadow-green-900/20">Market Buy</button>
-        <button className="bg-red-600 hover:bg-red-700 text-white font-bold py-2.5 rounded-md transition-all uppercase tracking-widest text-xs shadow-lg shadow-red-900/20">Market Sell</button>
+      <div className="grid grid-cols-2 gap-3 mt-3">
+        <button className="bg-green-600 py-2 rounded text-xs font-bold uppercase">Buy Signal</button>
+        <button className="bg-red-600 py-2 rounded text-xs font-bold uppercase">Sell Signal</button>
       </div>
     </WidgetWrapper>
   );
