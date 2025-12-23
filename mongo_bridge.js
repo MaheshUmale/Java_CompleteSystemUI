@@ -3,7 +3,7 @@ import { WebSocketServer } from 'ws';
 import { MongoClient } from 'mongodb';
 
 /**
- * CONFIGURATION
+ * REPLAY CONFIGURATION
  * Database: upstox_strategy_db
  * Collection: tick_data
  */
@@ -14,97 +14,84 @@ const WS_PORT = 8080;
 
 /**
  * REPLAY SETTINGS
- * Set REPLAY_MODE to true to play back historical data.
- * Set REPLAY_DELAY_MS to control the speed of the playback.
+ * 100ms = Standard (10 ticks/sec)
+ * 50ms = 2x Speed
+ * 10ms = 10x Speed (Fast Replay)
  */
-const REPLAY_MODE = true; 
-const REPLAY_DELAY_MS = 100; // 100ms between ticks (approx 10 ticks/sec)
+const REPLAY_DELAY_MS = 50; 
 
 const wss = new WebSocketServer({ port: WS_PORT });
-console.log(`[BRIDGE] WebSocket Server: ws://localhost:${WS_PORT}`);
-console.log(`[BRIDGE] Target: ${DB_NAME}.${COLLECTION_NAME}`);
-console.log(`[BRIDGE] Mode: ${REPLAY_MODE ? 'REPLAY (Historical)' : 'LIVE (New Ticks)'}`);
+
+console.log(`
+=========================================
+   JULES-HF-ATS MONGODB REPLAY BRIDGE
+=========================================
+WebSocket: ws://localhost:${WS_PORT}
+Database:  ${DB_NAME}
+Collection: ${COLLECTION_NAME}
+Speed:     ${REPLAY_DELAY_MS}ms delay
+=========================================
+`);
 
 async function startBridge() {
   const client = new MongoClient(MONGO_URI);
   
   try {
     await client.connect();
-    console.log('[BRIDGE] Connected to MongoDB');
+    console.log('[MONGO] Connected to local instance.');
     
     const db = client.db(DB_NAME);
     const collection = db.collection(COLLECTION_NAME);
 
-    if (REPLAY_MODE) {
-      await runReplay(collection);
-    } else {
-      await runLive(collection);
+    // Get total count for progress reporting
+    const totalDocs = await collection.countDocuments();
+    if (totalDocs === 0) {
+      console.warn('[EMPTY] No data found in tick_data. Ensure your Java system has saved some ticks.');
+      process.exit(0);
     }
 
+    console.log(`[REPLAY] Starting playback of ${totalDocs} ticks...`);
+    await runReplay(collection, totalDocs);
+
   } catch (err) {
-    console.error('[BRIDGE] Connection Error:', err);
+    console.error('[FATAL] Connection Failed:', err.message);
     setTimeout(startBridge, 5000);
   }
 }
 
-/**
- * REPLAY MODE: Fetches existing data and plays it back
- */
-async function runReplay(collection) {
-  console.log('[REPLAY] Fetching historical ticks for playback...');
-  
-  // Sort by _id to ensure chronological order of insertion
+async function runReplay(collection, totalDocs) {
+  // Sort by _id to ensure we follow the order the Java system inserted them
   const cursor = collection.find({}).sort({ _id: 1 });
   
   let count = 0;
+  
   while (await cursor.hasNext()) {
     const doc = await cursor.next();
     
-    // Wait for at least one client to be connected before starting/continuing
-    while (wss.clients.size === 0) {
-      process.stdout.write('\r[REPLAY] Waiting for dashboard connection...      ');
-      await new Promise(r => setTimeout(r, 1000));
+    // Pause if no dashboard is listening
+    if (wss.clients.size === 0) {
+      process.stdout.write(`\r[PAUSED] Waiting for Dashboard connection... `);
+      while (wss.clients.size === 0) {
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      console.log('\n[RESUMED] Dashboard detected. Pumping ticks...');
     }
 
     broadcastToDashboard(doc);
     count++;
     
-    if (count % 10 === 0) {
-      process.stdout.write(`\r[REPLAY] Processed ${count} ticks...`);
+    // Log progress every 20 ticks
+    if (count % 20 === 0 || count === totalDocs) {
+      const progress = ((count / totalDocs) * 100).toFixed(1);
+      process.stdout.write(`\r[PROGRESS] ${count}/${totalDocs} (${progress}%) | Instrument: ${doc.instrumentKey} `);
     }
 
-    // Delay to simulate time passing
     await new Promise(r => setTimeout(r, REPLAY_DELAY_MS));
   }
   
-  console.log('\n[REPLAY] Finished playing back all available ticks.');
+  console.log('\n\n[FINISH] Replay end of file reached. Restart bridge to replay again.');
 }
 
-/**
- * LIVE MODE: Polls for new documents (Standard behavior)
- */
-async function runLive(collection) {
-  let lastProcessedId = null;
-  console.log('[LIVE] Watching for new ticks via polling...');
-  
-  setInterval(async () => {
-    try {
-      const query = lastProcessedId ? { _id: { $gt: lastProcessedId } } : {};
-      const newDocs = await collection.find(query).sort({ _id: 1 }).limit(20).toArray();
-      
-      for (const doc of newDocs) {
-        broadcastToDashboard(doc);
-        lastProcessedId = doc._id;
-      }
-    } catch (err) {
-      console.error('[BRIDGE] Polling Error:', err);
-    }
-  }, 100);
-}
-
-/**
- * Broadcast payload to all connected clients
- */
 function broadcastToDashboard(doc) {
   const key = doc.instrumentKey;
   if (!key || !doc.fullFeed) return;
@@ -113,7 +100,7 @@ function broadcastToDashboard(doc) {
     feeds: {
       [key]: {
         fullFeed: doc.fullFeed,
-        requestMode: doc.requestMode
+        requestMode: doc.requestMode || 'full'
       }
     }
   };
@@ -121,7 +108,7 @@ function broadcastToDashboard(doc) {
   const message = JSON.stringify(payload);
   
   wss.clients.forEach((client) => {
-    if (client.readyState === 1) {
+    if (client.readyState === 1) { // 1 = OPEN
       client.send(message);
     }
   });
