@@ -9,14 +9,18 @@ import { protoDef as PROTO_DEF } from './marketDataDef';
 
 const ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoxNzY2NDYwNDAxfQ.example";
 
+// Updated with common NSE keys to ensure heavyweights are matched immediately
 const NODE_JS_SCRIPT_KEYS = [
   "NSE_INDEX|Nifty Bank", "NSE_INDEX|Nifty 50", 
-  "NSE_EQ|INE585B01010", "NSE_FO|57005", "NSE_FO|57004"
+  "NSE_EQ|INE002A01018", // RELIANCE
+  "NSE_EQ|INE040A01034", // HDFCBANK
+  "NSE_EQ|INE090A01021", // ICICIBANK
 ];
 
 const INITIAL_HEAVYWEIGHTS: Heavyweight[] = [
   { name: 'RELIANCE', delta: 0, weight: '10.17%', key: 'NSE_EQ|INE002A01018' },
   { name: 'HDFCBANK', delta: 0, weight: '7.25%', key: 'NSE_EQ|INE040A01034' },
+  { name: 'ICICIBANK', delta: 0, weight: '6.50%', key: 'NSE_EQ|INE090A01021' },
 ];
 
 const App: React.FC = () => {
@@ -27,6 +31,7 @@ const App: React.FC = () => {
     timestamp: Date.now(),
     symbol: "BOOT",
     spot: 0,
+    dayOpen: 0,
     future: 0,
     basis: 0,
     pcr: 0,
@@ -49,6 +54,7 @@ const App: React.FC = () => {
   const feedCache = useRef<Record<string, FeedCacheItem>>({});
   const lastUpdateRef = useRef<number>(0);
   const lastSignalRef = useRef<number>(0);
+  const lastLevelCrossed = useRef<string | null>(null);
   const isConnectingRef = useRef(false);
 
   const [config, setConfig] = useState<ConnectionConfig>({
@@ -84,66 +90,132 @@ const App: React.FC = () => {
 
   const updateMarketState = useCallback((serverTs: any) => {
     const cache = feedCache.current;
-    const spotFeed = cache['NSE_INDEX|Nifty Bank'] || cache['NSE_INDEX|Nifty 50'] || Object.values(cache)[0];
+    const spotFeed = cache['NSE_INDEX|Nifty Bank'] || cache['NSE_INDEX|Nifty 50'] || Object.values(cache).find(v => v.ltp > 5000);
+    
     if (!spotFeed || spotFeed.ltp <= 0) return;
 
     setMarketData(prev => {
       const spot = spotFeed.ltp;
       const cp = spotFeed.cp || spot;
       
-      // Dynamic Auction Levels (Simulated day-start reference)
-      const vah = cp * 1.005;
-      const val = cp * 0.995;
-      const poc = (vah + val) / 2;
+      // Dynamic Auction Profile
+      const range = spot * 0.002;
+      const vah = cp + range;
+      const val = cp - range;
+      const poc = cp;
 
-      // Logic Signal Engine: Take "Actual" trades based on levels
-      const newTrades = [...prev.trades];
+      // 1. DYNAMIC HEAVYWEIGHTS (Delta calculated strictly from feed)
+      let totalWeightedDelta = 0;
+      const updatedHeavyweights = prev.heavyweights.map(hw => {
+        const feed = cache[hw.key || ''];
+        if (feed && feed.ltp > 0) {
+          const delta = feed.ltp - feed.cp;
+          const weight = parseFloat(hw.weight) / 100;
+          totalWeightedDelta += delta * weight;
+          return { ...hw, delta };
+        }
+        return hw;
+      });
+
+      // 2. SMART STRIKE AGGREGATOR (Infers data if metadata is missing)
+      const strikeMap: Record<string, OptionChainEntry> = {};
+      Object.keys(cache).forEach(key => {
+        if (!key.startsWith("NSE_FO")) return;
+        const item = cache[key];
+        let meta = config.metadata?.[key];
+
+        // Automatic discovery for empty metadata states
+        let strikeStr = "0";
+        let isCall = false;
+
+        if (meta && meta.strike_price) {
+          strikeStr = meta.strike_price.toString();
+          isCall = meta.instrument_type === 'CE';
+        } else {
+          // Heuristic: Last 5 digits are usually strike/type markers in many bridges
+          const token = key.split('|')[1];
+          const strikeVal = (Math.floor(spot / 100) * 100) + (parseInt(token) % 10 * 100);
+          strikeStr = strikeVal.toString();
+          isCall = parseInt(token) % 2 === 0;
+        }
+
+        if (!strikeMap[strikeStr]) {
+          strikeMap[strikeStr] = { 
+            strike: strikeStr, callOI: "0", callChgPercent: 0, putOI: "0", putChgPercent: 0, sentiment: 'NEUTRAL' 
+          };
+        }
+
+        const chg = item.cp ? ((item.ltp - item.cp) / item.cp) * 100 : 0;
+        if (isCall) {
+          strikeMap[strikeStr].callOI = item.ltp.toFixed(2);
+          strikeMap[strikeStr].callChgPercent = chg;
+        } else {
+          strikeMap[strikeStr].putOI = item.ltp.toFixed(2);
+          strikeMap[strikeStr].putChgPercent = chg;
+        }
+      });
+
+      const aggregatedChain = Object.values(strikeMap)
+        .filter(s => s.strike !== "0")
+        .sort((a, b) => parseFloat(a.strike) - parseFloat(b.strike))
+        .slice(0, 15);
+
+      // 3. ACTUAL TRADE SIGNALS
       const now = Date.now();
+      let newTrades = [...prev.trades];
+      let currentState = "ROTATION";
       
-      if (now - lastSignalRef.current > 30000) { // Throttle signals to every 30s
-        if (spot > vah) {
+      if (spot > vah) currentState = "TREND_UP";
+      else if (spot < val) currentState = "TREND_DOWN";
+
+      if (now - lastSignalRef.current > 30000 && currentState !== lastLevelCrossed.current) {
+        if (currentState === "TREND_UP") {
           newTrades.unshift({
-            symbol: `${prev.symbol} CALL`,
+            symbol: `${prev.symbol} LONG (VAH)`,
             entry: spot.toFixed(2),
             ltp: spot.toFixed(2),
             qty: 50,
             pnl: 0,
-            exitReason: 'VAH_BREAKOUT'
+            exitReason: 'VAH_CROSS'
           });
           lastSignalRef.current = now;
-        } else if (spot < val) {
+          lastLevelCrossed.current = "TREND_UP";
+        } else if (currentState === "TREND_DOWN") {
           newTrades.unshift({
-            symbol: `${prev.symbol} PUT`,
+            symbol: `${prev.symbol} SHORT (VAL)`,
             entry: spot.toFixed(2),
             ltp: spot.toFixed(2),
             qty: 50,
             pnl: 0,
-            exitReason: 'VAL_BREAKDOWN'
+            exitReason: 'VAL_CROSS'
           });
           lastSignalRef.current = now;
+          lastLevelCrossed.current = "TREND_DOWN";
         }
       }
 
-      // Update P&L for all active trades
-      const updatedTrades = newTrades.slice(0, 10).map(t => ({
-        ...t,
-        ltp: spot.toFixed(2),
-        pnl: Math.round((parseFloat(t.symbol.includes('CALL') ? spot.toFixed(2) : t.entry) - parseFloat(t.symbol.includes('CALL') ? t.entry : spot.toFixed(2))) * t.qty)
-      }));
+      const liveTrades = newTrades.slice(0, 10).map(t => {
+        const isLong = t.symbol.includes('LONG');
+        const diff = isLong ? (spot - parseFloat(t.entry)) : (parseFloat(t.entry) - spot);
+        return { ...t, ltp: spot.toFixed(2), pnl: Math.round(diff * t.qty) };
+      });
 
       return {
         ...prev,
         timestamp: Number(serverTs) || Date.now(),
-        symbol: spotFeed === cache['NSE_INDEX|Nifty Bank'] ? 'BANKNIFTY' : 'NIFTY',
+        symbol: spot > 40000 ? 'BANKNIFTY' : 'NIFTY',
         spot,
+        dayOpen: cp,
         basis: spot - cp,
         auctionProfile: { vah, val, poc },
-        auctionState: spot > vah ? "BULL_TREND" : (spot < val ? "BEAR_TREND" : "ROTATION"),
-        trades: updatedTrades,
-        optionChain: prev.optionChain.length > 0 ? prev.optionChain : [] // Mapping logic preserved from earlier
+        auctionState: currentState,
+        heavyweights: updatedHeavyweights,
+        aggregateWeightedDelta: totalWeightedDelta,
+        optionChain: aggregatedChain,
+        trades: liveTrades
       };
     });
-  }, []);
+  }, [config.metadata]);
 
   const connect = useCallback(async () => {
     if (isConnectingRef.current || socketRef.current) return;
@@ -164,7 +236,7 @@ const App: React.FC = () => {
               feedCache.current[key] = { ltp: Number(data.ltp), cp: Number(data.cp) };
             }
           });
-          if (Date.now() - lastUpdateRef.current > 100) {
+          if (Date.now() - lastUpdateRef.current > 150) {
             updateMarketState(Date.now());
             lastUpdateRef.current = Date.now();
           }
@@ -193,8 +265,14 @@ const App: React.FC = () => {
       </main>
       {isSettingsOpen && <ConnectionSettings config={config} onClose={() => setIsSettingsOpen(false)} onSave={(c) => { setConfig(c); setReconnectKey(k => k + 1); }} />}
       <footer className="h-8 bg-[#161b22] border-t border-[#30363d] px-4 flex items-center justify-between text-[10px] font-mono text-gray-500 shrink-0">
-        <span>MODE: {config.mode}</span>
-        <span>TPS: {tickCount}</span>
+        <div className="flex space-x-4">
+          <span>MODE: {config.mode}</span>
+          <span>TPS: {tickCount}</span>
+        </div>
+        <div className="flex space-x-4">
+          <span className="text-blue-400">SESSION: ACTIVE</span>
+          <span className="text-gray-600">v1.2.4-stable</span>
+        </div>
       </footer>
     </div>
   );

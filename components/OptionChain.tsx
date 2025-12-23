@@ -26,7 +26,7 @@ const OptionChain: React.FC<OptionChainProps> = ({ marketData }) => {
         </div>
       }
     >
-      <div className="min-w-full">
+      <div className="min-w-full h-full overflow-y-auto custom-scrollbar">
         <table className="w-full text-[10px] font-mono border-collapse whitespace-nowrap">
           <thead className="sticky top-0 bg-[#1c2128] z-10 shadow-sm">
             <tr className="text-gray-500 uppercase border-b border-[#30363d]">
@@ -60,7 +60,7 @@ const OptionChain: React.FC<OptionChainProps> = ({ marketData }) => {
             )) : (
               <tr>
                 <td colSpan={5} className="py-16 text-center text-gray-600 uppercase italic tracking-widest text-[9px]">
-                  Map Instruments in Settings to Populate Chain
+                  Waiting for Feed & Mapping...
                 </td>
               </tr>
             )}

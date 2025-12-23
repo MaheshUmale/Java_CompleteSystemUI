@@ -1,3 +1,4 @@
+
 import React, { useEffect, useRef } from 'react';
 import WidgetWrapper from './WidgetWrapper';
 import { createChart, ColorType, CandlestickSeries, LineSeries, ISeriesApi } from 'lightweight-charts';
@@ -26,8 +27,6 @@ const TradePanel: React.FC<TradePanelProps> = ({ marketData }) => {
       rightPriceScale: { 
         autoScale: true, 
         borderColor: '#30363d',
-        // Fix: Removed 'entirePriceVolume' as it is not a valid property in PriceScaleOptions.
-        // Standard behavior when autoScale is true prevents 0 from being forced into view unless present in data.
       },
     });
 
@@ -58,27 +57,44 @@ const TradePanel: React.FC<TradePanelProps> = ({ marketData }) => {
       const val = marketData.spot;
       const barTime = Math.floor(time / 60) * 60;
 
+      // Handle Day Start Initialization
+      if (!lastBarRef.current && marketData.dayOpen > 0) {
+        // Create an initial "day start" bar
+        const openBar = { 
+          // Fix: Explicitly cast time to any to satisfy lightweight-charts Time type requirement
+          time: (barTime - 60) as any, 
+          open: marketData.dayOpen, 
+          high: marketData.dayOpen, 
+          low: marketData.dayOpen, 
+          close: marketData.dayOpen 
+        };
+        spotSeriesRef.current?.update(openBar);
+      }
+
       if (!lastBarRef.current || lastBarRef.current.time !== barTime) {
-        lastBarRef.current = { time: barTime, open: val, high: val, low: val, close: val };
+        // Fix: Explicitly cast time to any to satisfy lightweight-charts Time type requirement
+        lastBarRef.current = { time: barTime as any, open: val, high: val, low: val, close: val };
       } else {
         lastBarRef.current.high = Math.max(lastBarRef.current.high, val);
         lastBarRef.current.low = Math.min(lastBarRef.current.low, val);
         lastBarRef.current.close = val;
       }
       spotSeriesRef.current?.update(lastBarRef.current);
-      strikeSeriesRef.current?.update({ time: time as any, value: (val % 100) + 100 });
+      
+      // Target Premium chart showing relative volatility
+      strikeSeriesRef.current?.update({ time: time as any, value: Math.abs(marketData.basis) * 10 });
     }
   }, [marketData]);
 
   return (
-    <WidgetWrapper title="Live Spot Scaling">
+    <WidgetWrapper title="Day-Start Spot Trend">
       <div className="grid grid-cols-2 gap-2 h-full">
         <div ref={spotChartRef} className="bg-[#0d1117] rounded border border-[#30363d] overflow-hidden" />
         <div ref={strikeChartRef} className="bg-[#0d1117] rounded border border-[#30363d] overflow-hidden" />
       </div>
       <div className="grid grid-cols-2 gap-3 mt-3">
-        <button className="bg-green-600 py-2 rounded text-xs font-bold uppercase">Buy Signal</button>
-        <button className="bg-red-600 py-2 rounded text-xs font-bold uppercase">Sell Signal</button>
+        <button className="bg-green-600/20 border border-green-500/30 text-green-500 py-2 rounded text-[10px] font-bold uppercase tracking-widest">Bullish Impulse</button>
+        <button className="bg-red-600/20 border border-red-500/30 text-red-500 py-2 rounded text-[10px] font-bold uppercase tracking-widest">Bearish Pressure</button>
       </div>
     </WidgetWrapper>
   );

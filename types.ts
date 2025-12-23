@@ -30,19 +30,6 @@ export interface TradePosition {
   exitReason: string;
 }
 
-// Matches Upstox NSE.json structure
-export interface UpstoxInstrument {
-  instrument_key: string;
-  trading_symbol: string;
-  name: string;
-  expiry?: string; // "2025-12-23"
-  strike_price?: number;
-  instrument_type?: string; // "CE", "PE", "EQ", "INDEX"
-  lot_size?: number;
-  exchange_token?: string;
-  underlying_symbol?: string;
-}
-
 export interface InstrumentMetadata {
   instrument_key: string;
   trading_symbol: string;
@@ -55,19 +42,13 @@ export interface FeedCacheItem {
   ltp: number;
   cp: number;
   ltt?: string | number;
-  optionGreeks?: {
-    delta?: number;
-    theta?: number;
-    gamma?: number;
-    vega?: number;
-    rho?: number;
-  };
 }
 
 export interface MarketData {
   timestamp: number;
   symbol: string;
   spot: number;
+  dayOpen: number; // Added for chart reference
   future: number;
   basis: number;
   pcr: number;
